@@ -13,61 +13,6 @@ namespace JamesHeinrich\GetID3;
 //                                                            ///
 /////////////////////////////////////////////////////////////////
 
-// define a constant rather than looking up every time it is needed
-if (!defined('GETID3_OS_ISWINDOWS')) {
-	define('GETID3_OS_ISWINDOWS', (stripos(PHP_OS, 'WIN') === 0));
-}
-// Workaround Bug #39923 (https://bugs.php.net/bug.php?id=39923)
-if (!defined('IMG_JPG') && defined('IMAGETYPE_JPEG')) {
-	define('IMG_JPG', IMAGETYPE_JPEG);
-}
-
-// attempt to define temp dir as something flexible but reliable
-$temp_dir = ini_get('upload_tmp_dir');
-if ($temp_dir && (!is_dir($temp_dir) || !is_readable($temp_dir))) {
-	$temp_dir = '';
-}
-if (!$temp_dir && function_exists('sys_get_temp_dir')) { // sys_get_temp_dir added in PHP v5.2.1
-	// sys_get_temp_dir() may give inaccessible temp dir, e.g. with open_basedir on virtual hosts
-	$temp_dir = sys_get_temp_dir();
-}
-$temp_dir = @realpath($temp_dir); // see https://github.com/JamesHeinrich/getID3/pull/10
-$open_basedir = ini_get('open_basedir');
-if ($open_basedir) {
-	// e.g. "/var/www/vhosts/getid3.org/httpdocs/:/tmp/"
-	$temp_dir     = str_replace(array('/', '\\'), DIRECTORY_SEPARATOR, $temp_dir);
-	$open_basedir = str_replace(array('/', '\\'), DIRECTORY_SEPARATOR, $open_basedir);
-	if (substr($temp_dir, -1, 1) != DIRECTORY_SEPARATOR) {
-		$temp_dir .= DIRECTORY_SEPARATOR;
-	}
-	$found_valid_tempdir = false;
-	$open_basedirs = explode(PATH_SEPARATOR, $open_basedir);
-	foreach ($open_basedirs as $basedir) {
-		if (substr($basedir, -1, 1) != DIRECTORY_SEPARATOR) {
-			$basedir .= DIRECTORY_SEPARATOR;
-		}
-		if (preg_match('#^'.preg_quote($basedir).'#', $temp_dir)) {
-			$found_valid_tempdir = true;
-			break;
-		}
-	}
-	if (!$found_valid_tempdir) {
-		$temp_dir = '';
-	}
-	unset($open_basedirs, $found_valid_tempdir, $basedir);
-}
-if (!$temp_dir) {
-	$temp_dir = '*'; // invalid directory name should force tempnam() to use system default temp dir
-}
-// $temp_dir = '/something/else/';  // feel free to override temp dir here if it works better for your system
-if (!defined('GETID3_TEMP_DIR')) {
-	define('GETID3_TEMP_DIR', $temp_dir);
-}
-unset($open_basedir, $temp_dir);
-
-// End: Defines
-
-
 class GetID3
 {
 	// public: Settings
@@ -101,7 +46,6 @@ class GetID3
 	public $filename;                         // Filename of file being analysed.
 	public $fp;                               // Filepointer to file being analysed.
 	public $info;                             // Result array.
-	public $tempdir = GETID3_TEMP_DIR;
 	public $memory_limit = 0;
 
 	// Protected variables
@@ -167,50 +111,6 @@ class GetID3
 		if ($this->option_max_2gb_check === null) {
 			$this->option_max_2gb_check = (PHP_INT_MAX <= 2147483647);
 		}
-
-
-		// Needed for Windows only:
-		// Define locations of helper applications for Shorten, VorbisComment, MetaFLAC
-		//   as well as other helper functions such as head, tail, md5sum, etc
-		// This path cannot contain spaces, but the below code will attempt to get the
-		//   8.3-equivalent path automatically
-		// IMPORTANT: This path must include the trailing slash
-		if (GETID3_OS_ISWINDOWS && !defined('GETID3_HELPERAPPSDIR')) {
-
-			$helperappsdir = __DIR__ . \DIRECTORY_SEPARATOR . ".." . \DIRECTORY_SEPARATOR . "helperapps";
-
-			if (!is_dir($helperappsdir)) {
-				$this->startup_warning .= '"'.$helperappsdir.'" cannot be defined as GETID3_HELPERAPPSDIR because it does not exist';
-			} elseif (strpos(realpath($helperappsdir), ' ') !== false) {
-				$DirPieces = explode(DIRECTORY_SEPARATOR, realpath($helperappsdir));
-				$path_so_far = array();
-				foreach ($DirPieces as $key => $value) {
-					if (strpos($value, ' ') !== false) {
-						if (!empty($path_so_far)) {
-							$commandline = 'dir /x '.escapeshellarg(implode(DIRECTORY_SEPARATOR, $path_so_far));
-							$dir_listing = `$commandline`;
-							$lines = explode("\n", $dir_listing);
-							foreach ($lines as $line) {
-								$line = trim($line);
-								if (preg_match('#^([0-9/]{10}) +([0-9:]{4,5}( [AP]M)?) +(<DIR>|[0-9,]+) +([^ ]{0,11}) +(.+)$#', $line, $matches)) {
-									list($dummy, $date, $time, $ampm, $filesize, $shortname, $filename) = $matches;
-									if ((strtoupper($filesize) == '<DIR>') && (strtolower($filename) == strtolower($value))) {
-										$value = $shortname;
-									}
-								}
-							}
-						} else {
-							$this->startup_warning .= 'GETID3_HELPERAPPSDIR must not have any spaces in it - use 8dot3 naming convention if neccesary. You can run "dir /x" from the commandline to see the correct 8.3-style names.';
-						}
-					}
-					$path_so_far[] = $value;
-				}
-				$helperappsdir = implode(DIRECTORY_SEPARATOR, $path_so_far);
-			}
-			define('GETID3_HELPERAPPSDIR', $helperappsdir.DIRECTORY_SEPARATOR);
-		}
-
-		return true;
 	}
 
 	public function version() {
@@ -417,7 +317,7 @@ class GetID3
 			// Check encoding/iconv support
 			if (!empty($determined_format['iconv_req']) && !function_exists('iconv') && !in_array($this->encoding, array('ISO-8859-1', 'UTF-8', 'UTF-16LE', 'UTF-16BE', 'UTF-16'))) {
 				$errormessage = 'iconv() support is required for this module ('.$determined_format['include'].') for encodings other than ISO-8859-1, UTF-8, UTF-16LE, UTF16-BE, UTF-16. ';
-				if (GETID3_OS_ISWINDOWS) {
+				if (Utils::isWindows()) {
 					$errormessage .= 'PHP does not have iconv() support. Please enable php_iconv.dll in php.ini, and copy iconv.dll from c:/php/dlls to c:/windows/system32';
 				} else {
 					$errormessage .= 'PHP is not compiled with iconv() support. Please recompile with the --with-iconv switch';
@@ -1249,23 +1149,23 @@ class GetID3
 				$old_abort = ignore_user_abort(true);
 
 				// Create empty file
-				$empty = tempnam(GETID3_TEMP_DIR, 'getID3');
+				$empty = tempnam(Utils::getTempDirectory(), 'getID3');
 				touch($empty);
 
 				// Use vorbiscomment to make temp file without comments
-				$temp = tempnam(GETID3_TEMP_DIR, 'getID3');
+				$temp = tempnam(Utils::getTempDirectory(), 'getID3');
 				$file = $this->info['filenamepath'];
 
-				if (GETID3_OS_ISWINDOWS) {
+				if (Utils::isWindows()) {
 
-					if (file_exists(GETID3_HELPERAPPSDIR.'vorbiscomment.exe')) {
+					if (file_exists(Utils::getHelperAppDirectory() . 'vorbiscomment.exe')) {
 
-						$commandline = '"'.GETID3_HELPERAPPSDIR.'vorbiscomment.exe" -w -c "'.$empty.'" "'.$file.'" "'.$temp.'"';
+						$commandline = '"' . Utils::getHelperAppDirectory() . 'vorbiscomment.exe" -w -c "'.$empty.'" "'.$file.'" "'.$temp.'"';
 						$VorbisCommentError = `$commandline`;
 
 					} else {
 
-						$VorbisCommentError = 'vorbiscomment.exe not found in '.GETID3_HELPERAPPSDIR;
+						$VorbisCommentError = 'vorbiscomment.exe not found in ' . Utils::getHelperAppDirectory();
 
 					}
 
@@ -1494,9 +1394,5 @@ class GetID3
 			}
 		}
 		return true;
-	}
-
-	public function getid3_tempnam() {
-		return tempnam($this->tempdir, 'gI3');
 	}
 }

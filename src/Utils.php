@@ -16,6 +16,162 @@ namespace JamesHeinrich\GetID3;
 
 class Utils
 {
+	/**
+	 * @var boolean $windows Whether the current os is windows or not
+	 */
+	protected static $windows;
+
+	/**
+	 * @var string $tmp The current temp directory
+	 */
+	protected static $tmp;
+
+	/**
+	 * @var string $helpers The path to the helper binaries for windows
+	 */
+	protected static $helpers;
+
+	/**
+	 * @var boolean $hasINT64 Whether the current system suports 64bit integers
+	 */
+	protected static $hasINT64;
+
+	/**
+	 * Check if the current os is windows.
+	 *
+	 * @return boolean
+	 */
+	public static function isWindows()
+	{
+		if (static::$windows === null) {
+			static::$windows = (stripos(PHP_OS, 'WIN') === 0);
+		}
+		return static::$windows;
+	}
+
+
+	/**
+	 * Get the temp directory, if it has not been set then attempt to use something flexible but reliable.
+	 *
+	 * @return string
+	 */
+	public static function getTempDirectory()
+	{
+		if (static::$tmp) {
+			return static::$tmp;
+		}
+
+		$tmp = ini_get('upload_tmp_dir');
+		if ($tmp && (!is_dir($tmp) || !is_readable($tmp))) {
+			$tmp = '';
+		}
+		if (!$tmp) {
+			// sys_get_temp_dir() may give inaccessible temp dir, e.g. with open_basedir on virtual hosts
+			$tmp = sys_get_temp_dir();
+		}
+
+		// see https://github.com/JamesHeinrich/getID3/pull/10
+		$tmp = @realpath($tmp);
+
+		$openBasedir = ini_get('open_basedir');
+		if ($openBasedir) {
+			// e.g. "/var/www/vhosts/getid3.org/httpdocs/:/tmp/"
+			$tmp = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $tmp);
+			$openBasedir = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $openBasedir);
+			if (substr($tmp, -1, 1) !== DIRECTORY_SEPARATOR) {
+				$tmp .= DIRECTORY_SEPARATOR;
+			}
+			$found = false;
+			$openBasedirs = explode(PATH_SEPARATOR, $openBasedir);
+			foreach ($openBasedirs as $basedir) {
+				if (substr($basedir, -1, 1) !== DIRECTORY_SEPARATOR) {
+					$basedir .= DIRECTORY_SEPARATOR;
+				}
+				if (preg_match('#^' . preg_quote($basedir) . '#', $tmp)) {
+					$found = true;
+					break;
+				}
+			}
+			if (!$found) {
+				$tmp = '';
+			}
+		}
+
+		// invalid directory name should force tempnam() to use system default temp dir
+		if (!$tmp) {
+			$tmp = '*';
+		}
+
+		return static::$tmp = $tmp;
+	}
+
+
+	/**
+	 * Set the temp directory to use.
+	 *
+	 * @param string $path The full path to the directory to use
+	 *
+	 * @return void
+	 */
+	public static function setTempDirectory($path)
+	{
+		static::$tmp = $path;
+	}
+
+
+	/**
+	 * Get the directory the helper apps are in.
+	 *
+	 * Needed for Windows only:
+	 * Define locations of helper applications for Shorten, VorbisComment, MetaFLAC as well as other helper functions such as head, tail, md5sum, etc.
+	 * This path cannot contain spaces, but the below code will attempt to get the 8.3-equivalent path automatically.
+	 * IMPORTANT: This path must include the trailing slash
+	 *
+	 * @return string
+	 */
+	public static function getHelperAppDirectory()
+	{
+		if (static::$helpers) {
+			return static::$helpers;
+		}
+
+		$dir = __DIR__ . \DIRECTORY_SEPARATOR  . ".." . \DIRECTORY_SEPARATOR . "bin" . \DIRECTORY_SEPARATOR;
+
+		if (!static::isWindows()) {
+			return static::$helpers = $dir;
+		}
+
+		if (strpos(realpath($dir), ' ') === false) {
+			return static::$helpers = $dir;
+		}
+
+		$dirPieces = explode(\DIRECTORY_SEPARATOR, realpath($dir));
+		$pathParts = [];
+		foreach ($dirPieces as $key => $value) {
+			if (strpos($value, ' ') !== false) {
+				if (!empty($pathParts)) {
+					$commandline = 'dir /x ' . escapeshellarg(implode(\DIRECTORY_SEPARATOR, $pathParts));
+					$dir_listing = `$commandline`;
+					$lines = explode("\n", $dir_listing);
+					foreach ($lines as $line) {
+						$line = trim($line);
+						if (preg_match('#^([0-9/]{10}) +([0-9:]{4,5}( [AP]M)?) +(<DIR>|[0-9,]+) +([^ ]{0,11}) +(.+)$#', $line, $matches)) {
+							list($dummy, $date, $time, $ampm, $filesize, $shortname, $filename) = $matches;
+							if (strtoupper($filesize) === '<DIR>' && strtolower($filename) === strtolower($value)) {
+								$value = $shortname;
+							}
+						}
+					}
+				} else {
+					$this->startup_warning .= 'The path to getid3 must not have any spaces in it - use 8dot3 naming convention if neccesary. You can run "dir /x" from the commandline to see the correct 8.3-style names.';
+				}
+			}
+			$pathParts[] = $value;
+		}
+
+		return static::$helpers = implode(\DIRECTORY_SEPARATOR, $pathParts) . \DIRECTORY_SEPARATOR;
+	}
+
 
 	public static function PrintHexBytes($string, $hex=true, $spaces=true, $htmlencoding='UTF-8') {
 		$returnstring = '';
@@ -79,21 +235,23 @@ class Utils
 		return $floatnum;
 	}
 
-	public static function intValueSupported($num) {
+
+	public static function intValueSupported($num)
+	{
 		// check if integers are 64-bit
-		static $hasINT64 = null;
-		if ($hasINT64 === null) { // 10x faster than is_null()
-			$hasINT64 = is_int(pow(2, 31)); // 32-bit int are limited to (2^31)-1
-			if (!$hasINT64 && !defined('PHP_INT_MIN')) {
-				define('PHP_INT_MIN', ~PHP_INT_MAX);
-			}
+		if (static::$hasINT64 === null) {
+			static::$hasINT64 = is_int(pow(2, 31));
 		}
 		// if integers are 64-bit - no other check required
-		if ($hasINT64 || (($num <= PHP_INT_MAX) && ($num >= PHP_INT_MIN))) {
+		if (static::$hasINT64) {
+			return true;
+		}
+		if ($num <= PHP_INT_MAX && $num >= ~PHP_INT_MAX) {
 			return true;
 		}
 		return false;
 	}
+
 
 	public static function DecimalizeFraction($fraction) {
 		list($numerator, $denominator) = explode('/', $fraction);
@@ -524,12 +682,12 @@ class Utils
 		if (function_exists('simplexml_load_string') && function_exists('libxml_disable_entity_loader')) {
 			// http://websec.io/2012/08/27/Preventing-XEE-in-PHP.html
 			// https://core.trac.wordpress.org/changeset/29378
-			$loader = libxml_disable_entity_loader(true); 
-			$XMLobject = simplexml_load_string($XMLstring, 'SimpleXMLElement', LIBXML_NOENT); 
-			$return = self::SimpleXMLelement2array($XMLobject); 
-			libxml_disable_entity_loader($loader); 
-			return $return; 
-		} 
+			$loader = libxml_disable_entity_loader(true);
+			$XMLobject = simplexml_load_string($XMLstring, 'SimpleXMLElement', LIBXML_NOENT);
+			$return = self::SimpleXMLelement2array($XMLobject);
+			libxml_disable_entity_loader($loader);
+			return $return;
+		}
 		return false;
 	}
 
@@ -548,7 +706,6 @@ class Utils
 	// Allan Hansen <ahØartemis*dk>
 	// self::md5_data() - returns md5sum for a file from startuing position to absolute end position
 	public static function hash_data($file, $offset, $end, $algorithm) {
-		static $tempdir = '';
 		if (!self::intValueSupported($end)) {
 			return false;
 		}
@@ -573,7 +730,7 @@ class Utils
 		}
 		$size = $end - $offset;
 		while (true) {
-			if (GETID3_OS_ISWINDOWS) {
+			if (static::isWindows()) {
 
 				// It seems that sha1sum.exe for Windows only works on physical files, does not accept piped data
 				// Fall back to create-temp-file method:
@@ -583,19 +740,17 @@ class Utils
 
 				$RequiredFiles = array('cygwin1.dll', 'head.exe', 'tail.exe', $windows_call);
 				foreach ($RequiredFiles as $required_file) {
-					if (!is_readable(GETID3_HELPERAPPSDIR.$required_file)) {
+					if (!is_readable(static::getHelperAppDirectory() . $required_file)) {
 						// helper apps not available - fall back to old method
 						break 2;
 					}
 				}
-				$commandline  = GETID3_HELPERAPPSDIR.'head.exe -c '.$end.' '.escapeshellarg(str_replace('/', DIRECTORY_SEPARATOR, $file)).' | ';
-				$commandline .= GETID3_HELPERAPPSDIR.'tail.exe -c '.$size.' | ';
-				$commandline .= GETID3_HELPERAPPSDIR.$windows_call;
-
+				$commandline  = static::getHelperAppDirectory() . 'head.exe -c ' . $end . ' ' . escapeshellarg(str_replace('/', \DIRECTORY_SEPARATOR, $file)) . ' | ';
+				$commandline .= static::getHelperAppDirectory() . 'tail.exe -c ' . $size . ' | ';
+				$commandline .= static::getHelperAppDirectory() . $windows_call;
 			} else {
-
-				$commandline  = 'head -c'.$end.' '.escapeshellarg($file).' | ';
-				$commandline .= 'tail -c'.$size.' | ';
+				$commandline  = 'head -c' . $end . ' ' . escapeshellarg($file) . ' | ';
+				$commandline .= 'tail -c' . $size . ' | ';
 				$commandline .= $unix_call;
 
 			}
@@ -606,12 +761,8 @@ class Utils
 			return substr(`$commandline`, 0, $hash_length);
 		}
 
-		if (empty($tempdir)) {
-			// yes this is ugly, feel free to suggest a better way
-			$tempdir = (new GetID3)->tempdir;
-		}
 		// try to create a temporary file in the system temp directory - invalid dirname should force to system temp dir
-		if (($data_filename = tempnam($tempdir, 'gI3')) === false) {
+		if (($data_filename = tempnam(static::getTempDirectory(), 'gI3')) === false) {
 			// can't find anywhere to create a temp file, just fail
 			return false;
 		}
@@ -1150,13 +1301,8 @@ class Utils
 
 
 	public static function GetDataImageSize($imgData, &$imageinfo=array()) {
-		static $tempdir = '';
-		if (empty($tempdir)) {
-			// yes this is ugly, feel free to suggest a better way
-			$tempdir = (new GetID3)->tempdir;
-		}
 		$GetDataImageSize = false;
-		if ($tempfilename = tempnam($tempdir, 'gI3')) {
+		if ($tempfilename = tempnam(static::getTempDirectory(), 'gI3')) {
 			if (is_writable($tempfilename) && is_file($tempfilename) && ($tmp = fopen($tempfilename, 'wb'))) {
 				fwrite($tmp, $imgData);
 				fclose($tmp);
@@ -1320,7 +1466,7 @@ class Utils
 	public static function getFileSizeSyscall($path) {
 		$filesize = false;
 
-		if (GETID3_OS_ISWINDOWS) {
+		if (static::isWindows()) {
 			if (class_exists('COM')) { // From PHP 5.3.15 and 5.4.5, COM and DOTNET is no longer built into the php core.you have to add COM support in php.ini:
 				$filesystem = new COM('Scripting.FileSystemObject');
 				$file = $filesystem->GetFile($path);

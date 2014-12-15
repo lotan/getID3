@@ -2,6 +2,8 @@
 
 namespace JamesHeinrich\GetID3\Write;
 
+use JamesHeinrich\GetID3\Utils;
+
 /////////////////////////////////////////////////////////////////
 /// getID3() by James Heinrich <info@getid3.org>               //
 //  available at http://getid3.sourceforge.net                 //
@@ -32,7 +34,7 @@ class VorbisComment
 		}
 
 		// Create file with new comments
-		$tempcommentsfilename = tempnam(GETID3_TEMP_DIR, 'getID3');
+		$tempcommentsfilename = tempnam(Utils::getTempDirectory(), 'getID3');
 		if (is_writable($tempcommentsfilename) && is_file($tempcommentsfilename) && ($fpcomments = fopen($tempcommentsfilename, 'wb'))) {
 
 			foreach ($this->tag_data as $key => $value) {
@@ -48,10 +50,10 @@ class VorbisComment
 		}
 
 		$oldignoreuserabort = ignore_user_abort(true);
-		if (GETID3_OS_ISWINDOWS) {
+		if (Utils::isWindows()) {
 
-			if (file_exists(GETID3_HELPERAPPSDIR.'vorbiscomment.exe')) {
-				//$commandline = '"'.GETID3_HELPERAPPSDIR.'vorbiscomment.exe" -w --raw -c "'.$tempcommentsfilename.'" "'.str_replace('/', '\\', $this->filename).'"';
+			if (file_exists(Utils::getHelperAppDirectory() . 'vorbiscomment.exe')) {
+				//$commandline = '"'.Utils::getHelperAppDirectory().'vorbiscomment.exe" -w --raw -c "'.$tempcommentsfilename.'" "'.str_replace('/', '\\', $this->filename).'"';
 				//  vorbiscomment works fine if you copy-paste the above commandline into a command prompt,
 				//  but refuses to work with `backtick` if there are "doublequotes" present around BOTH
 				//  the metaflac pathname and the target filename. For whatever reason...??
@@ -63,7 +65,7 @@ class VorbisComment
 				clearstatcache();
 				$timestampbeforewriting = filemtime($this->filename);
 
-				$commandline = GETID3_HELPERAPPSDIR.'vorbiscomment.exe -w --raw -c "'.$tempcommentsfilename.'" "'.$this->filename.'" 2>&1';
+				$commandline = Utils::getHelperAppDirectory() . 'vorbiscomment.exe -w --raw -c "' . $tempcommentsfilename . '" "' . $this->filename . '" 2>&1';
 				$VorbiscommentError = `$commandline`;
 
 				if (empty($VorbiscommentError)) {
@@ -73,7 +75,7 @@ class VorbisComment
 					}
 				}
 			} else {
-				$VorbiscommentError = 'vorbiscomment.exe not found in '.GETID3_HELPERAPPSDIR;
+				$VorbiscommentError = 'vorbiscomment.exe not found in ' . Utils::getHelperAppDirectory();
 			}
 
 		} else {

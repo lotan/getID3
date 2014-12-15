@@ -122,16 +122,16 @@ class Shorten extends \JamesHeinrich\GetID3\Module\Handler
 			return false;
 		}
 
-		if (GETID3_OS_ISWINDOWS) {
+		if (Utils::isWindows()) {
 
 			$RequiredFiles = array('shorten.exe', 'cygwin1.dll', 'head.exe');
 			foreach ($RequiredFiles as $required_file) {
-				if (!is_readable(GETID3_HELPERAPPSDIR.$required_file)) {
-					$info['error'][] = GETID3_HELPERAPPSDIR.$required_file.' does not exist';
+				if (!is_readable(Utils::getHelperAppDirectory() . $required_file)) {
+					$info['error'][] = Utils::getHelperAppDirectory() . $required_file . ' does not exist';
 					return false;
 				}
 			}
-			$commandline = GETID3_HELPERAPPSDIR.'shorten.exe -x "'.$info['filenamepath'].'" - | '.GETID3_HELPERAPPSDIR.'head.exe -c 64';
+			$commandline = Utils::getHelperAppDirectory() . 'shorten.exe -x "' . $info['filenamepath'] . '" - | ' . Utils::getHelperAppDirectory() . 'head.exe -c 64';
 			$commandline = str_replace('/', '\\', $commandline);
 
 		} else {

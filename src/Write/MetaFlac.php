@@ -2,6 +2,8 @@
 
 namespace JamesHeinrich\GetID3\Write;
 
+use JamesHeinrich\GetID3\Utils;
+
 /////////////////////////////////////////////////////////////////
 /// getID3() by James Heinrich <info@getid3.org>               //
 //  available at http://getid3.sourceforge.net                 //
@@ -32,7 +34,7 @@ class MetaFlac
 		}
 
 		// Create file with new comments
-		$tempcommentsfilename = tempnam(GETID3_TEMP_DIR, 'getID3');
+		$tempcommentsfilename = tempnam(Utils::getTempDirectory(), 'getID3');
 		if (is_writable($tempcommentsfilename) && is_file($tempcommentsfilename) && ($fpcomments = fopen($tempcommentsfilename, 'wb'))) {
 			foreach ($this->tag_data as $key => $value) {
 				foreach ($value as $commentdata) {
@@ -47,10 +49,10 @@ class MetaFlac
 		}
 
 		$oldignoreuserabort = ignore_user_abort(true);
-		if (GETID3_OS_ISWINDOWS) {
+		if (Utils::isWindows()) {
 
-			if (file_exists(GETID3_HELPERAPPSDIR.'metaflac.exe')) {
-				//$commandline = '"'.GETID3_HELPERAPPSDIR.'metaflac.exe" --no-utf8-convert --remove-all-tags --import-tags-from="'.$tempcommentsfilename.'" "'.str_replace('/', '\\', $this->filename).'"';
+			if (file_exists(Utils::getHelperAppDirectory() . 'metaflac.exe')) {
+				//$commandline = '"' . Utils::getHelperAppDirectory() . 'metaflac.exe" --no-utf8-convert --remove-all-tags --import-tags-from="' . $tempcommentsfilename . '" "' . str_replace('/', '\\', $this->filename) . '"';
 				//  metaflac works fine if you copy-paste the above commandline into a command prompt,
 				//  but refuses to work with `backtick` if there are "doublequotes" present around BOTH
 				//  the metaflac pathname and the target filename. For whatever reason...??
@@ -62,7 +64,7 @@ class MetaFlac
 				clearstatcache();
 				$timestampbeforewriting = filemtime($this->filename);
 
-				$commandline = GETID3_HELPERAPPSDIR.'metaflac.exe --no-utf8-convert --remove-all-tags --import-tags-from='.escapeshellarg($tempcommentsfilename).' '.escapeshellarg($this->filename).' 2>&1';
+				$commandline = Utils::getHelperAppDirectory() . 'metaflac.exe --no-utf8-convert --remove-all-tags --import-tags-from=' . escapeshellarg($tempcommentsfilename) . ' ' . escapeshellarg($this->filename) . ' 2>&1';
 				$metaflacError = `$commandline`;
 
 				if (empty($metaflacError)) {
@@ -72,7 +74,7 @@ class MetaFlac
 					}
 				}
 			} else {
-				$metaflacError = 'metaflac.exe not found in '.GETID3_HELPERAPPSDIR;
+				$metaflacError = 'metaflac.exe not found in ' . Utils::getHelperAppDirectory();
 			}
 
 		} else {
@@ -106,14 +108,14 @@ class MetaFlac
 		}
 
 		$oldignoreuserabort = ignore_user_abort(true);
-		if (GETID3_OS_ISWINDOWS) {
+		if (Utils::isWindows()) {
 
-			if (file_exists(GETID3_HELPERAPPSDIR.'metaflac.exe')) {
+			if (file_exists(Utils::getHelperAppDirectory() . 'metaflac.exe')) {
 				// To at least see if there was a problem, compare file modification timestamps before and after writing
 				clearstatcache();
 				$timestampbeforewriting = filemtime($this->filename);
 
-				$commandline = GETID3_HELPERAPPSDIR.'metaflac.exe --remove-all-tags "'.$this->filename.'" 2>&1';
+				$commandline = Utils::getHelperAppDirectory() . 'metaflac.exe --remove-all-tags "' . $this->filename . '" 2>&1';
 				$metaflacError = `$commandline`;
 
 				if (empty($metaflacError)) {
@@ -123,7 +125,7 @@ class MetaFlac
 					}
 				}
 			} else {
-				$metaflacError = 'metaflac.exe not found in '.GETID3_HELPERAPPSDIR;
+				$metaflacError = 'metaflac.exe not found in ' . Utils::getHelperAppDirectory();
 			}
 
 		} else {
